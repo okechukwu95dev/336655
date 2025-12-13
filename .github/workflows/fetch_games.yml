@@ -1,0 +1,94 @@
+name: Fetch Games
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: 'Start date (MM/DD/YYYY)'
+        required: true
+        default: '12/12/2025'
+      end_date:
+        description: 'End date (MM/DD/YYYY)'
+        required: true
+        default: '22/12/2025'
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      # Step 1: Checkout repo with full history
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+      
+      # Step 2: Set up Python environment
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      # Step 3: Restore existing DB from base64
+      - name: Restore database from base64
+        run: |
+          echo "📥 Checking for existing database..."
+          
+          if [ -f games.db.b64 ]; then
+            echo "✅ Found games.db.b64, decoding..."
+            base64 -d games.db.b64 > games.db
+            
+            # Verify integrity
+            if python -c "import sqlite3; sqlite3.connect('games.db').execute('SELECT 1')"; then
+              echo "✅ Database restored and verified"
+              ls -lh games.db
+            else
+              echo "❌ Database corrupted, starting fresh"
+              rm -f games.db
+            fi
+          else
+            echo "⚠️  No existing database found, starting fresh"
+          fi
+      
+      # Step 4: Install Python dependencies
+      - name: Install dependencies
+        run: |
+          echo "📦 Installing Python dependencies..."
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          echo "✅ Dependencies installed"
+      
+      # Step 5: Run parallel fetch
+      - name: Run parallel fetch (${{ github.event.inputs.start_date }} to ${{ github.event.inputs.end_date }})
+        run: |
+          echo "🚀 Starting fetch with 10 workers..."
+          python fetch_manager.py "${{ github.event.inputs.start_date }}" "${{ github.event.inputs.end_date }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+      
+      # Step 6: Upload logs as artifact
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetch-logs
+          path: logs/
+      
+      # Step 7: Report results
+      - name: Fetch summary
+        if: always()
+        run: |
+          echo "📊 Fetch Summary"
+          echo "================"
+          if [ -f "logs/"* ]; then
+            echo "✅ Logs generated:"
+            ls -lh logs/
+          fi
+          if [ -f games.db ]; then
+            echo "✅ Database:"
+            ls -lh games.db
+          fi
