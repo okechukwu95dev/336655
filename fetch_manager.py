@@ -84,25 +84,18 @@ def restore_db_from_github():
     This reads games.db.b64 from repo and decodes it to games.db for runtime.
     If file doesn't exist, start with fresh DB.
     """
-    chunks = sorted([f for f in os.listdir('.') if f.startswith("games.db.b64.")])
+    import gzip
     
-    if not chunks and not os.path.exists("games.db.b64"):
-        print(f"⚠️  No DB files found - starting with fresh DB")
+    gz_path = "games.db.gz"
+    
+    if not os.path.exists(gz_path):
+        print(f"⚠️  No {gz_path} found - starting with fresh DB")
         return
     
     try:
-        if chunks:
-            print(f"📥 Found {len(chunks)} chunks, joining...")
-            b64_data = ""
-            for c in chunks:
-                with open(c, "r") as f:
-                    b64_data += f.read()
-        else:
-            print(f"📥 Restoring DB from single file...")
-            with open("games.db.b64", "rb") as f:
-                b64_data = f.read()
-        
-        db_bytes = base64.b64decode(b64_data)
+        print(f"📥 Decompressing {gz_path}...")
+        with gzip.open(gz_path, "rb") as gz:
+            db_bytes = gz.read()
         
         with open(DB_PATH, "wb") as f:
             f.write(db_bytes)
@@ -517,34 +510,23 @@ def push_db_to_github():
         with open(DB_PATH, "rb") as f:
             db_bytes = f.read()
         
-        # Encode as base64 (no line breaks for cleaner diffs)
-        db_b64 = base64.b64encode(db_bytes).decode('utf-8')
+        # Compress with gzip (much better than base64!)
+        print(f"📦 Compressing {len(db_bytes)} bytes with gzip...")
         
-        # Split into 90MB chunks (safe for GitHub 100MB limit)
-        CHUNK_SIZE = 90 * 1024 * 1024
-        total_len = len(db_b64)
-        num_chunks = (total_len + CHUNK_SIZE - 1) // CHUNK_SIZE
+        import gzip
+        with gzip.open("games.db.gz", "wb", compresslevel=9) as gz:
+            gz.write(db_bytes)
         
-        print(f"📦 Splitting {total_len} bytes into {num_chunks} chunks...")
+        compressed_size = os.path.getsize("games.db.gz")
+        compression_ratio = (1 - compressed_size / len(db_bytes)) * 100
         
-        # Remove old chunks
+        print(f"✅ Compressed to {compressed_size:,} bytes ({compression_ratio:.1f}% smaller)")
+        
+        # Remove old artifacts
         for f in os.listdir('.'):
-            if f.startswith("games.db.b64."):
+            if f.startswith("games.db.b64"):
                 os.remove(f)
-        
-        chunk_files = []
-        for i in range(num_chunks):
-            start = i * CHUNK_SIZE
-            end = start + CHUNK_SIZE
-            chunk_data = db_b64[start:end]
-            chunk_name = f"games.db.b64.{i:03d}"
-            
-            with open(chunk_name, "w") as f:
-                f.write(chunk_data)
-            chunk_files.append(chunk_name)
-            print(f"   CREATED {chunk_name} ({len(chunk_data)} bytes)")
-        
-        print(f"✅ Encoded and split into {len(chunk_files)} files")
+                print(f"   🗑️  Removed old chunk: {f}")
         
         # Configure git
         print("🔧 Configuring git...")
@@ -562,7 +544,7 @@ def push_db_to_github():
         # Stage and commit
         print("📝 Staging changes...")
         subprocess.run(
-            ["git", "add"] + chunk_files,
+            ["git", "add", "games.db.gz"],
             check=True,
             capture_output=True
         )
@@ -590,7 +572,7 @@ def push_db_to_github():
             ["git", "push"],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=300  # 5 minutes for large uploads
         )
         
         if result.returncode == 0:
