@@ -217,17 +217,20 @@ def fetch(endpoint, extra_params=None, retries=3):
     return None
 
 def get_favorite_competition_ids():
-    """Get all favorited competition IDs from local DB"""
+    """Get all favorited competition IDs from local JSON file"""
     try:
-        conn = get_db()
-        rows = conn.execute(
-            "SELECT entity_id FROM favorites WHERE entity_type='competition'"
-        ).fetchall()
-        conn.close()
-        return [r['entity_id'] for r in rows]
+        json_path = "favorites.json"
+        if not os.path.exists(json_path):
+            print(f"⚠️  {json_path} not found - returning empty list")
+            return []
+            
+        with open(json_path, "r") as f:
+            ids = json.load(f)
+            print(f"✅ Loaded {len(ids)} favorite competitions from {json_path}")
+            return ids
     except Exception as e:
         log_event({
-            "type": "FAVORITES_FETCH_ERROR",
+            "type": "FAVORITES_LOAD_ERROR",
             "error": str(e)
         })
         print(f"⚠️  Could not load favorites: {e}")
@@ -525,7 +528,7 @@ def push_db_to_github():
 # WORKER TASK (Parallel Processing)
 # =============================================================================
 
-def worker_process_game(game_id, depth, seen_ids_set):
+def worker_process_game(game_id, depth):
     """
     Worker processes a single game:
     - Depth 0 (ROOT): Fetch full details, H2H, form, squad, standings
@@ -533,11 +536,6 @@ def worker_process_game(game_id, depth, seen_ids_set):
     
     Returns list of discovered game IDs to enqueue.
     """
-    if game_id in seen_ids_set:
-        return []
-    
-    seen_ids_set.add(game_id)
-    
     # Check if already complete in DB
     try:
         conn = get_db()
@@ -654,7 +652,7 @@ class ParallelFetcher:
                 while len(futures) < self.num_workers and idx < len(self.to_process):
                     gid, depth = self.to_process[idx]
                     future = executor.submit(
-                        worker_process_game, gid, depth, self.seen_ids
+                        worker_process_game, gid, depth
                     )
                     futures[future] = (gid, depth, idx)
                     idx += 1
