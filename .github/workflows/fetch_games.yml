@@ -12,6 +12,9 @@ on:
         required: true
         default: '22/12/2025'
 
+permissions:
+  contents: write
+
 jobs:
   fetch_shard:
     name: Fetch Shard ${{ matrix.shard }}
