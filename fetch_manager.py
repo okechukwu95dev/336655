@@ -21,7 +21,12 @@ DEFAULT_PARAMS = {
     'userCountryId': 331
 }
 
-DB_PATH = "games.db"  # Temporary runtime file
+# Runtime Config (Global)
+SHARD_ID = None
+TOTAL_SHARDS = 1
+IS_MERGE_MODE = False
+
+DB_PATH = "games.db"  # Will be updated if sharding
 LOG_DIR = "logs"
 START_DATE = None  # Set via CLI argument
 END_DATE = None    # Set via CLI argument
@@ -274,10 +279,27 @@ def fetch_games_for_period(favorite_ids):
     
     all_games = data["games"]
     favorite_set = set(favorite_ids)
-    games = [g for g in all_games if g.get("competitionId") in favorite_set]
     
-    print(f"✅ Found {len(games)} games (from {len(all_games)} total)")
-    return games
+    # Filter by favorites
+    relevant_games = [g for g in all_games if g.get("competitionId") in favorite_set]
+    
+    if SHARD_ID is not None:
+        # Sharding Logic: Process games where (id % total) == shard
+        my_games = []
+        for g in relevant_games:
+            try:
+                gid = int(g['id'])
+                if gid % TOTAL_SHARDS == SHARD_ID:
+                    my_games.append(g)
+            except:
+                pass
+        
+        print(f"✅ Found {len(relevant_games)} relevant games")
+        print(f"🔪 SHARD {SHARD_ID}/{TOTAL_SHARDS}: Processing {len(my_games)} games")
+        return my_games
+        
+    print(f"✅ Found {len(relevant_games)} games (from {len(all_games)} total)")
+    return relevant_games
 
 def fetch_game_details(game_id):
     """Fetch full game details including events and members"""
@@ -428,6 +450,44 @@ def save_game(game, context):
                 "error": str(e)
             })
 
+def merge_shards():
+    """
+    Merge all games_shard_*.db files into games.db
+    """
+    print_header("Merging Shards")
+    
+    # Ensure main DB exists/init
+    init_db()
+    
+    # Find shard files
+    files = [f for f in os.listdir('.') if f.startswith('games_shard_') and f.endswith('.db')]
+    print(f"📦 Found {len(files)} shard databases")
+    
+    with db_lock:
+        main_conn = get_db()
+        count = 0
+        
+        for sf in files:
+            print(f"   ➕ Merging {sf}...", end="", flush=True)
+            try:
+                # Attach shard DB
+                main_conn.execute(f"ATTACH DATABASE '{sf}' AS shard_db")
+                
+                # Copy games
+                main_conn.execute("INSERT OR IGNORE INTO games SELECT * FROM shard_db.games")
+                
+                # Detach
+                main_conn.commit()
+                main_conn.execute("DETACH DATABASE shard_db")
+                print(" ✅")
+                count += 1
+            except Exception as e:
+                print(f" ❌ Error: {e}")
+        
+        main_conn.close()
+        
+    print(f"✅ Merged {count} shards into {DB_PATH}")
+
 def push_db_to_github():
     """
     Encode SQLite DB as base64 and push to GitHub.
@@ -546,13 +606,15 @@ def worker_process_game(game_id, depth):
     except:
         pass
     
+    t_name = threading.current_thread().name
     context_label = "ROOT" if depth == 0 else "LEAF"
-    print(f"   ⚡ [{context_label:4}] Game {game_id}...", end="", flush=True)
+    
+    print(f"   ⚡ [{t_name}] [{context_label:4}] Game {game_id} started")
     
     # Fetch core game details
     details = fetch_game_details(game_id)
     if not details:
-        print(" ❌")
+        print(f"   ❌ [{t_name}] Game {game_id} failed")
         return []
     
     # Build context object
@@ -605,9 +667,9 @@ def worker_process_game(game_id, depth):
     
     # Print status
     if queued:
-        print(f" ✅ ({len(queued)} queued)")
+        print(f"   ✅ [{t_name}] Game {game_id} done ({len(queued)} queued)")
     else:
-        print(f" ✅")
+        print(f"   ✅ [{t_name}] Game {game_id} done")
     
     return queued
 
@@ -707,23 +769,49 @@ def main():
     """Main entry point"""
     print_header("365SCORES PARALLEL FETCH - GitHub Actions")
     
-    # Parse CLI arguments
-    global START_DATE, END_DATE
+    global START_DATE, END_DATE, SHARD_ID, TOTAL_SHARDS, IS_MERGE_MODE, DB_PATH
     
-    if len(sys.argv) < 3:
-        print("❌ Usage: python fetch_manager.py <START_DATE> <END_DATE>")
-        print("   Example: python fetch_manager.py 12/12/2025 22/12/2025")
+    args = sys.argv[1:]
+    
+    # Parse args manually to avoid argparse dep if desired, or use argparse
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("start_date", nargs="?", help="Start Date DD/MM/YYYY")
+    parser.add_argument("end_date", nargs="?", help="End Date DD/MM/YYYY")
+    parser.add_argument("--shard", type=int, help="Shard index (0-N)")
+    parser.add_argument("--shards", type=int, default=10, help="Total shards")
+    parser.add_argument("--merge", action="store_true", help="Run merge mode")
+    
+    parsed = parser.parse_args()
+    
+    if parsed.merge:
+        merge_shards()
+        push_db_to_github()
+        sys.exit(0)
+        
+    if not parsed.start_date or not parsed.end_date:
+        print("❌ Usage: python fetch_manager.py <START_DATE> <END_DATE> [--shard N --shards T] | [--merge]")
         sys.exit(1)
+        
+    START_DATE = parsed.start_date
+    END_DATE = parsed.end_date
     
-    START_DATE = sys.argv[1]
-    END_DATE = sys.argv[2]
+    if parsed.shard is not None:
+        SHARD_ID = parsed.shard
+        TOTAL_SHARDS = parsed.shards
+        DB_PATH = f"games_shard_{SHARD_ID}.db"
+        print(f"🔪 Running Shard {SHARD_ID} of {TOTAL_SHARDS}")
+        print(f"💾 DB Output: {DB_PATH}")
     
     print(f"📅 Date Range: {START_DATE} to {END_DATE}")
     print(f"👷 Workers: {NUM_WORKERS}")
     print(f"🔗 GitHub: {GITHUB_REPOSITORY if GITHUB_REPOSITORY else 'local'}")
     
-    # Step 1: Restore existing DB from GitHub
-    restore_db_from_github()
+    # Step 1: Restore existing DB (SKIP if sharding, start fresh for shard)
+    if SHARD_ID is None:
+        restore_db_from_github()
+    else:
+        print("clean shard db start")
     
     # Step 2: Initialize DB
     init_db()
@@ -733,13 +821,17 @@ def main():
     ids = get_favorite_competition_ids()
     if not ids:
         print("⚠️  No favorite competitions found")
-        print("   Ensure favorites are loaded in local DB")
     
     root_games = fetch_games_for_period(ids)
     
-    if not root_games:
+    if not root_games and SHARD_ID is None:
         print("❌ No games found for date range")
-        sys.exit(1)
+        sys.exit(0)
+    
+    if not root_games and SHARD_ID is not None:
+        print("ℹ️  No games assigned to this shard")
+        # Ensure DB is created even if empty for artifact
+        sys.exit(0)
     
     # Step 4: Parallel fetch
     print_header("Parallel Processing")
@@ -753,17 +845,10 @@ def main():
     print(f"✅ {summary['processed']} games processed")
     print(f"⏱️  {summary['elapsed_minutes']:.1f} minutes ({summary['rate']:.1f} games/sec)")
     
-    # Step 6: Push to GitHub
-    print_header("GitHub Integration")
-    success = push_db_to_github()
-    
-    if success:
-        print("\\n✅ All operations completed successfully")
-        sys.exit(0)
-    else:
-        print("\\n⚠️  Fetch complete but GitHub push had issues")
-        print("   DB is saved locally - manual push may be needed")
-        sys.exit(1)
+    # Step 6: Push (ONLY IF NOT SHARDING)
+    if SHARD_ID is None:
+        print_header("GitHub Integration")
+        push_db_to_github()
 
 if __name__ == "__main__":
     try:

@@ -3,3 +3,4 @@ __pycache__/
 *.log
 debug_*.py
 favorites.json
+games_shard_*.db
