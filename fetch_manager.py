@@ -84,16 +84,23 @@ def restore_db_from_github():
     This reads games.db.b64 from repo and decodes it to games.db for runtime.
     If file doesn't exist, start with fresh DB.
     """
-    b64_path = "games.db.b64"
+    chunks = sorted([f for f in os.listdir('.') if f.startswith("games.db.b64.")])
     
-    if not os.path.exists(b64_path):
-        print(f"⚠️  No {b64_path} found - starting with fresh DB")
+    if not chunks and not os.path.exists("games.db.b64"):
+        print(f"⚠️  No DB files found - starting with fresh DB")
         return
     
     try:
-        print(f"📥 Restoring DB from base64...")
-        with open(b64_path, "rb") as f:
-            b64_data = f.read()
+        if chunks:
+            print(f"📥 Found {len(chunks)} chunks, joining...")
+            b64_data = ""
+            for c in chunks:
+                with open(c, "r") as f:
+                    b64_data += f.read()
+        else:
+            print(f"📥 Restoring DB from single file...")
+            with open("games.db.b64", "rb") as f:
+                b64_data = f.read()
         
         db_bytes = base64.b64decode(b64_data)
         
@@ -513,10 +520,31 @@ def push_db_to_github():
         # Encode as base64 (no line breaks for cleaner diffs)
         db_b64 = base64.b64encode(db_bytes).decode('utf-8')
         
-        with open("games.db.b64", "w") as f:
-            f.write(db_b64)
+        # Split into 90MB chunks (safe for GitHub 100MB limit)
+        CHUNK_SIZE = 90 * 1024 * 1024
+        total_len = len(db_b64)
+        num_chunks = (total_len + CHUNK_SIZE - 1) // CHUNK_SIZE
         
-        print(f"✅ Encoded {len(db_bytes)} bytes to base64")
+        print(f"📦 Splitting {total_len} bytes into {num_chunks} chunks...")
+        
+        # Remove old chunks
+        for f in os.listdir('.'):
+            if f.startswith("games.db.b64."):
+                os.remove(f)
+        
+        chunk_files = []
+        for i in range(num_chunks):
+            start = i * CHUNK_SIZE
+            end = start + CHUNK_SIZE
+            chunk_data = db_b64[start:end]
+            chunk_name = f"games.db.b64.{i:03d}"
+            
+            with open(chunk_name, "w") as f:
+                f.write(chunk_data)
+            chunk_files.append(chunk_name)
+            print(f"   CREATED {chunk_name} ({len(chunk_data)} bytes)")
+        
+        print(f"✅ Encoded and split into {len(chunk_files)} files")
         
         # Configure git
         print("🔧 Configuring git...")
@@ -534,7 +562,7 @@ def push_db_to_github():
         # Stage and commit
         print("📝 Staging changes...")
         subprocess.run(
-            ["git", "add", "games.db.b64"],
+            ["git", "add"] + chunk_files,
             check=True,
             capture_output=True
         )
