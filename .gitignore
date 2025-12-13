@@ -1,6 +1,10 @@
 __pycache__/
+*.pyc
 *.db
 *.log
+logs/
 debug_*.py
-favorites.json
+extract_*.py
 games_shard_*.db
+*.b64*
+games.db.gz
