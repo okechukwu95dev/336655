@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 
     steps:
       - name: Checkout
@@ -40,7 +40,7 @@ jobs:
         
       - name: Run Shard ${{ matrix.shard }}
         run: |
-          python fetch_manager.py "${{ inputs.start_date }}" "${{ inputs.end_date }}" --shard ${{ matrix.shard }} --shards 10
+          python fetch_manager.py "${{ inputs.start_date }}" "${{ inputs.end_date }}" --shard ${{ matrix.shard }} --shards 15
           
       - name: Upload Shard Artifact
         uses: actions/upload-artifact@v4
