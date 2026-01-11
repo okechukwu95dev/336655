@@ -43,15 +43,15 @@ def fetch_transcript(video_id):
     try:
         transcript = api.fetch(video_id)
         text = " ".join([item.text for item in transcript])
-        return text
+        return text, None
     except Exception as e:
-        return None
+        return None, str(e)
 
 def fetch_single(video_id):
     """Fetch a single video transcript - for testing."""
     print(f"🧪 Testing single video: {video_id}")
     
-    transcript = fetch_transcript(video_id)
+    transcript, error = fetch_transcript(video_id)
     if transcript:
         print(f"✅ Success! {len(transcript):,} chars")
         print(f"\n--- First 500 chars ---\n{transcript[:500]}")
@@ -62,6 +62,8 @@ def fetch_single(video_id):
         print(f"\n📁 Saved to {video_id}.txt")
     else:
         print(f"❌ Failed to fetch transcript")
+        print(f"Error: {error}")
+
 
 def fetch_batch(count=5):
     """Fetch a small batch of videos - for testing."""
@@ -79,7 +81,7 @@ def fetch_batch(count=5):
         if i > 0:
             time.sleep(2)
         
-        transcript = fetch_transcript(vid_id)
+        transcript, error = fetch_transcript(vid_id)
         
         if transcript:
             results.append({
@@ -96,9 +98,9 @@ def fetch_batch(count=5):
                 'title': video['title'],
                 'source': video['source'],
                 'transcript': None,
-                'error': True
+                'error': error
             })
-            print(f"❌ [{i+1}/{count}] {vid_id}: Failed")
+            print(f"❌ [{i+1}/{count}] {vid_id}: {error}")
     
     # Save results
     output_file = f'test_batch_{count}.jsonl'
@@ -138,7 +140,7 @@ def process_shard(shard_idx, total_shards, output_file):
         if i > 0:
             time.sleep(2)
         
-        transcript = fetch_transcript(vid_id)
+        transcript, error = fetch_transcript(vid_id)
         
         if transcript:
             results.append({
@@ -156,10 +158,10 @@ def process_shard(shard_idx, total_shards, output_file):
                 'title': video['title'],
                 'source': video['source'],
                 'transcript': None,
-                'error': True
+                'error': error
             })
             failed += 1
-            print(f"❌ [{i+1}/{len(shard_videos)}] {vid_id}")
+            print(f"❌ [{i+1}/{len(shard_videos)}] {vid_id}: {error}")
     
     # Save shard results
     with gzip.open(output_file, 'wt', encoding='utf-8') as f:
