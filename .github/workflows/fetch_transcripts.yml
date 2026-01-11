@@ -1,0 +1,125 @@
+name: Fetch YouTube Transcripts
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode'
+        required: true
+        type: choice
+        options:
+          - test_single
+          - test_batch_5
+          - full_run
+        default: 'test_single'
+      video_id:
+        description: 'Video ID (for test_single mode)'
+        required: false
+        default: 'RED6EnWXwGY'
+      shards:
+        description: 'Number of parallel shards (for full_run)'
+        required: false
+        default: '20'
+
+permissions:
+  contents: write
+
+jobs:
+  # ============ TEST SINGLE VIDEO ============
+  test_single:
+    name: Test Single Video
+    if: ${{ inputs.mode == 'test_single' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install youtube-transcript-api yt-dlp
+      - name: Fetch Single Video
+        run: python transcript_fetcher.py --test-single ${{ inputs.video_id }}
+
+  # ============ TEST BATCH OF 5 ============
+  test_batch:
+    name: Test Batch of 5
+    if: ${{ inputs.mode == 'test_batch_5' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install youtube-transcript-api yt-dlp
+      - name: Fetch Batch
+        run: python transcript_fetcher.py --test-batch 5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test_batch_results
+          path: test_batch_*.jsonl
+
+  # ============ FULL RUN (20 SHARDS) ============
+  fetch_shard:
+    name: Fetch Shard ${{ matrix.shard }}
+    if: ${{ inputs.mode == 'full_run' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install youtube-transcript-api yt-dlp
+      - name: Run Shard ${{ matrix.shard }}
+        run: python transcript_fetcher.py --shard ${{ matrix.shard }} --shards ${{ inputs.shards }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transcripts_shard_${{ matrix.shard }}
+          path: transcripts_shard_*.jsonl.gz
+          retention-days: 1
+
+  merge_and_commit:
+    name: Merge & Commit
+    needs: fetch_shard
+    if: ${{ inputs.mode == 'full_run' && always() }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install youtube-transcript-api yt-dlp
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: transcripts_shard_*
+          merge-multiple: true
+      - name: List Downloaded Shards
+        run: ls -lh transcripts_shard_*.jsonl.gz || echo "No shards found"
+      - name: Merge Shards
+        run: python transcript_fetcher.py --merge
+      - name: Show Stats
+        run: |
+          echo "=== Merged File Stats ==="
+          ls -lh transcripts_all.jsonl.gz
+          echo "Record count:"
+          zcat transcripts_all.jsonl.gz | wc -l
+      - name: Commit Results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add transcripts_all.jsonl.gz
+          git commit -m "📝 Update transcripts: $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git push
