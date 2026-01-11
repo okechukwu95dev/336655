@@ -1,0 +1,145 @@
+name: Extract Picks from Transcripts
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode'
+        required: true
+        type: choice
+        options:
+          - test_single
+          - test_batch_5
+          - full_run
+        default: 'test_single'
+      video_id:
+        description: 'Video ID (for test_single mode)'
+        required: false
+        default: 'RED6EnWXwGY'
+      model:
+        description: 'OpenAI model to use'
+        required: true
+        type: choice
+        options:
+          - gpt-4.1-mini
+          - gpt-4o-mini
+        default: 'gpt-4.1-mini'
+      shards:
+        description: 'Number of parallel shards (for full_run)'
+        required: false
+        default: '20'
+
+permissions:
+  contents: write
+
+jobs:
+  # ============ TEST SINGLE TRANSCRIPT ============
+  test_single:
+    name: Test Single Transcript
+    if: ${{ inputs.mode == 'test_single' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install openai python-dotenv
+      - name: Extract Single Transcript
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python pick_extractor.py --test-single ${{ inputs.video_id }} --model ${{ inputs.model }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test_extraction
+          path: extractions/*.json
+
+  # ============ TEST BATCH OF 5 ============
+  test_batch:
+    name: Test Batch of 5
+    if: ${{ inputs.mode == 'test_batch_5' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install openai python-dotenv
+      - name: Extract Batch
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python pick_extractor.py --test-batch 5 --model ${{ inputs.model }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test_batch_results
+          path: extractions/*.json
+
+  # ============ FULL RUN (20 SHARDS) ============
+  extract_shard:
+    name: Extract Shard ${{ matrix.shard }}
+    if: ${{ inputs.mode == 'full_run' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install openai python-dotenv
+      - name: Run Shard ${{ matrix.shard }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python pick_extractor.py --shard ${{ matrix.shard }} --shards ${{ inputs.shards }} --model ${{ inputs.model }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extractions_shard_${{ matrix.shard }}
+          path: extractions/*.json.gz
+          retention-days: 1
+
+  merge_and_commit:
+    name: Merge & Commit
+    needs: extract_shard
+    if: ${{ inputs.mode == 'full_run' && always() }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install openai python-dotenv
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: extractions_shard_*
+          merge-multiple: true
+      - name: List Downloaded Shards
+        run: ls -lh extractions/*.json.gz || echo "No shards found"
+      - name: Merge Shards
+        run: python pick_extractor.py --merge
+      - name: Show Stats
+        run: |
+          echo "=== Merged File Stats ==="
+          ls -lh extractions_all.jsonl.gz
+          echo "Record count:"
+          zcat extractions_all.jsonl.gz | wc -l
+          echo "Total cost:"
+          python pick_extractor.py --stats
+      - name: Commit Results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add extractions_all.jsonl.gz cost_report.json
+          git commit -m "🎯 Extract picks: $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git push

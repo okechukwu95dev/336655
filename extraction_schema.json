@@ -1,0 +1,201 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "video_id": { "type": "string" },
+    "chunk_id": { "type": "string" },
+
+    "context_notes": {
+      "type": "array",
+      "description": "Extract ALL explicit context claims (season stage, weather, press, competition, schedule, motivation, travel). If transcript mentions ANY such context, it MUST appear here.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_type": {
+            "type": "string",
+            "enum": ["season_stage", "weather_claim", "press_claim", "competition_context", "schedule_context", "motivation", "travel", "other"]
+          },
+          "scope": { "type": "string", "enum": ["global", "match", "team", "player", "unknown"] },
+          "claim_text": { "type": "string" },
+          "speaker": { "type": ["string", "null"] },
+          "evidence_quote": { "type": "string", "minLength": 5, "maxLength": 150 },
+          "evidence_loc": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "line_start": { "type": "integer" },
+              "line_end": { "type": "integer" },
+              "ts_start": { "type": ["string", "null"] },
+              "ts_end": { "type": ["string", "null"] }
+            },
+            "required": ["line_start", "line_end", "ts_start", "ts_end"]
+          }
+        },
+        "required": ["context_type", "scope", "claim_text", "speaker", "evidence_quote", "evidence_loc"]
+      }
+    },
+
+    "picks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "pick_id": { "type": "string", "description": "Unique within this output, e.g. p001" },
+
+          "pick_text_raw": { "type": "string" },
+
+          "market_family": {
+            "type": "string",
+            "enum": ["Totals_OU", "Binary", "Result", "Spread", "Team_Threshold", "Player_Prop", "Combo", "Other", "unknown"]
+          },
+          "metric": {
+            "type": "string",
+            "enum": ["goals", "corners", "cards", "shots", "shots_on_target", "player_clearances", "player_dribbles", "other", "unknown"]
+          },
+          "segment": { 
+            "type": "string", 
+            "enum": ["FT", "1H", "2H", "either_half", "minute_band", "unknown"]
+          },
+          "scope": { "type": "string", "enum": ["match", "team", "player", "unknown"] },
+
+          "line_value": { "type": ["string", "null"], "description": "e.g. '2.5', '9.5', or null if not stated" },
+          "side": {
+            "type": "string",
+            "enum": ["over", "under", "yes", "no", "home", "away", "draw", "handicap", "unknown"]
+          },
+
+          "legs": {
+            "type": "array",
+            "description": "For Combo picks only. Each leg is a separate market within the parlay.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "leg_id": { "type": "string" },
+                "market_family": { "type": "string" },
+                "metric": { "type": "string" },
+                "segment": { "type": "string" },
+                "scope": { "type": "string" },
+                "line_value": { "type": ["string", "null"] },
+                "side": { "type": "string" }
+              },
+              "required": ["leg_id", "market_family", "metric", "segment", "scope", "line_value", "side"]
+            }
+          },
+
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "condition_text": { "type": "string" },
+                "speaker": { "type": ["string", "null"] },
+                "evidence_quote": { "type": "string", "minLength": 5, "maxLength": 150 },
+                "evidence_loc": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "line_start": { "type": "integer" },
+                    "line_end": { "type": "integer" },
+                    "ts_start": { "type": ["string", "null"] },
+                    "ts_end": { "type": ["string", "null"] }
+                  },
+                  "required": ["line_start", "line_end", "ts_start", "ts_end"]
+                }
+              },
+              "required": ["condition_text", "speaker", "evidence_quote", "evidence_loc"]
+            }
+          },
+
+          "confidence_markers": { 
+            "type": "array", 
+            "items": { "type": "string" },
+            "description": "Verbatim phrases like: best bet, lock, love, lean, sprinkle, small play, max play, unit size, I'm on, I'll take, pass, stay away"
+          },
+          "price_phrases": { "type": "array", "items": { "type": "string" } },
+
+          "reasons": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "reason_type": {
+                  "type": "string",
+                  "enum": ["recent_form", "venue_split", "h2h", "table_stakes", "schedule_rest", "injuries_lineup", "referee", "weather", "tactical_style", "opponent_allow_rate", "conversion_xg", "player_role_minutes", "impact_player", "market_price", "narrative", "other"]
+                },
+                "claim_text": { "type": "string" },
+                "speaker": { "type": ["string", "null"] },
+                "evidence_quote": { "type": "string", "minLength": 5, "maxLength": 150 },
+                "evidence_loc": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "line_start": { "type": "integer" },
+                    "line_end": { "type": "integer" },
+                    "ts_start": { "type": ["string", "null"] },
+                    "ts_end": { "type": ["string", "null"] }
+                  },
+                  "required": ["line_start", "line_end", "ts_start", "ts_end"]
+                },
+                "numbers_explicit": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": { "type": "string" },
+                      "value": { "type": "string" },
+                      "unit": { "type": ["string", "null"] }
+                    },
+                    "required": ["name", "value", "unit"]
+                  }
+                }
+              },
+              "required": ["reason_type", "claim_text", "speaker", "evidence_quote", "evidence_loc", "numbers_explicit"]
+            }
+          },
+
+          "entities_mentioned": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Only include entities that appear in at least one evidence_quote for this pick.",
+            "properties": {
+              "teams": { "type": "array", "items": { "type": "string" } },
+              "players": { "type": "array", "items": { "type": "string" } },
+              "competition": { "type": ["string", "null"] }
+            },
+            "required": ["teams", "players", "competition"]
+          },
+
+          "extraction_notes": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": [
+          "pick_id",
+          "pick_text_raw",
+          "market_family",
+          "metric",
+          "segment",
+          "scope",
+          "line_value",
+          "side",
+          "legs",
+          "conditions",
+          "confidence_markers",
+          "price_phrases",
+          "reasons",
+          "entities_mentioned",
+          "extraction_notes"
+        ]
+      }
+    },
+
+    "extraction_issues": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["video_id", "chunk_id", "context_notes", "picks", "extraction_issues"]
+}
