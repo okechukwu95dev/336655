@@ -123,9 +123,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: extractions_shard_*
+          path: extractions
           merge-multiple: true
       - name: List Downloaded Shards
-        run: ls -lh extractions/*.json.gz || echo "No shards found"
+        run: ls -lhR extractions/ || echo "No shards found"
       - name: Merge Shards
         run: python pick_extractor.py --merge
       - name: Show Stats

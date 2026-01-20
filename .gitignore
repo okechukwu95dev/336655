@@ -8,3 +8,8 @@ extract_*.py
 games_shard_*.db
 *.b64*
 games.db.gz
+extractions/test_*.json
+extractions/test_batch*.json
+extractions/*_summary.json
+pick_extractor_local.py
+requirements_local.txt

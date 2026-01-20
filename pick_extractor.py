@@ -10,7 +10,10 @@ import sys
 import time
 from pathlib import Path
 
-import openai
+from openai import OpenAI
+
+# Global client, initialized in main()
+client = None
 
 # Configuration
 TRANSCRIPTS_FILE = "transcripts_all.jsonl.gz"
@@ -42,12 +45,9 @@ def load_transcripts(file_path: str) -> list:
 
 
 def load_schema():
-    """Load extraction schema, strip $schema for OpenAI compatibility."""
+    """Load extraction schema (already in OpenAI format with name/strict/schema)."""
     with open(SCHEMA_FILE, 'r', encoding='utf-8') as f:
-        schema = json.load(f)
-    if "$schema" in schema:
-        del schema["$schema"]
-    return schema
+        return json.load(f)
 
 
 def load_prompt():
@@ -73,35 +73,43 @@ def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     return input_cost + output_cost
 
 
+def detect_source(transcript: dict) -> str:
+    """Detect the source/channel from transcript metadata."""
+    source = transcript.get("source", "unknown")
+    title = transcript.get("title", "").lower()
+    
+    if source == "pickdawgz" or "pickdawg" in title:
+        return "pickdawgz"
+    elif source == "maikito" or "maikito" in title:
+        return "maikito"
+    elif source == "matt_english" or "matt english" in title:
+        return "matt_english"
+    return source
+
+
 def extract_single(transcript: dict, model: str, schema: dict, prompt: str) -> dict:
     """Extract picks from a single transcript."""
     video_id = transcript.get("id", "UNKNOWN")
     transcript_text = transcript.get("transcript", "")
+    source = detect_source(transcript)
     
     numbered_lines = format_transcript_numbered(transcript_text)
-    user_message = f"""BEGIN TRANSCRIPT LINES
-{numbered_lines}
-END TRANSCRIPT LINES
+    user_message = f"""Video ID: {video_id}
+Source: {source}
 
-BEGIN METADATA
-video_id: {video_id}
-chunk_id: full
-END METADATA"""
+TRANSCRIPT:
+{numbered_lines}"""
     
     start_time = time.time()
     
     try:
-        response = openai.chat.completions.create(
+        response = client.chat.completions.create(
             model=model,
             temperature=0.2,
             max_tokens=8000,
             response_format={
                 "type": "json_schema",
-                "json_schema": {
-                    "name": "soccer_transcript_pick_extraction",
-                    "strict": True,
-                    "schema": schema
-                }
+                "json_schema": schema  # Schema already contains name/strict/schema
             },
             messages=[
                 {"role": "system", "content": prompt},
@@ -225,11 +233,14 @@ def main():
     
     args = parser.parse_args()
     
-    # Set API key from env
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    if not openai.api_key and not args.merge and not args.stats:
+    # Set API key and initialize client
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key and not args.merge and not args.stats:
         print("ERROR: OPENAI_API_KEY not set")
         sys.exit(1)
+    
+    global client
+    client = OpenAI(api_key=api_key)
     
     if args.test_single:
         EXTRACTIONS_DIR.mkdir(exist_ok=True)
