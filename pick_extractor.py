@@ -145,6 +145,30 @@ TRANSCRIPT:
         }
 
 
+def extract_with_retry(transcript: dict, model: str, schema: dict, prompt: str, max_retries: int = 3, base_delay: int = 5) -> dict:
+    """Extract with exponential backoff retry on rate limit errors."""
+    result = None
+    for attempt in range(max_retries + 1):
+        result = extract_single(transcript, model, schema, prompt)
+        
+        if result["success"]:
+            return result
+        
+        # Check if it's a rate limit error
+        error = result.get("error", "")
+        if "429" in error or "rate limit" in error.lower():
+            if attempt < max_retries:
+                delay = base_delay * (2 ** attempt)  # 5, 10, 20 seconds
+                print(f"    Rate limited, waiting {delay}s before retry {attempt + 1}/{max_retries}...")
+                time.sleep(delay)
+                continue
+        
+        # Non-rate-limit error or max retries exceeded
+        return result
+    
+    return result
+
+
 def run_shard(shard: int, total_shards: int, model: str):
     """Process a single shard of transcripts."""
     EXTRACTIONS_DIR.mkdir(exist_ok=True)
@@ -168,8 +192,11 @@ def run_shard(shard: int, total_shards: int, model: str):
     
     for i, t in enumerate(shard_transcripts):
         print(f"  [{i+1}/{len(shard_transcripts)}] {t.get('id', 'UNKNOWN')[:20]}...", end=" ", flush=True)
-        result = extract_single(t, model, schema, prompt)
+        result = extract_with_retry(t, model, schema, prompt)
         results.append(result)
+        
+        # Delay between requests to prevent rate limiting
+        time.sleep(1)
         
         if result["success"]:
             total_cost += result["cost_usd"]

@@ -27,7 +27,7 @@ on:
       shards:
         description: 'Number of parallel shards (for full_run)'
         required: false
-        default: '20'
+        default: '5'
 
 permissions:
   contents: write
@@ -87,7 +87,7 @@ jobs:
       fail-fast: false
       max-parallel: 20
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+        shard: [0, 1, 2, 3, 4]
 
     steps:
       - uses: actions/checkout@v4
