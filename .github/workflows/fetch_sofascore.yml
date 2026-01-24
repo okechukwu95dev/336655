@@ -1,0 +1,42 @@
+name: Fetch SofaScore Leagues (Full Auto)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1'
+
+permissions:
+  contents: write
+
+jobs:
+  scrape-sofascore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests undetected-chromedriver selenium
+
+      - name: Run Auth Service (Get Cookies)
+        run: |
+          # This runs the headless browser to bypass Cloudflare
+          # It outputs 'cookies.json' which the next step reads
+          python auth_service.py
+
+      - name: Run Data Worker (Scrape Data)
+        run: |
+          # Passes the file created in the previous step
+          python sofa_worker.py --cookies cookies.json
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sofascore-leagues
+          path: sofascore_leagues.json
