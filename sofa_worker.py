@@ -52,10 +52,11 @@ def fetch_url(url, cookies, user_agent):
     }
     
     try:
-        resp = requests.get(url, headers=headers, cookies=cookies, timeout=15)
+        # print(f"--- [Worker] Debug: Fetching {url} with Cookies: {list(cookies.keys())} UA: {user_agent[:20]}...") 
+        resp = requests.get(url, headers=headers, cookies=cookies, timeout=20)
         return resp
     except Exception as e:
-        print(f"--- [Worker] Network Error: {e}")
+        print(f"--- [Worker] Network Exception for {url}: {type(e).__name__} - {e}")
         return None
 
 def scrape_category(category, cookies, user_agent):

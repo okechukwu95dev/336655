@@ -31,12 +31,18 @@ def get_auth_session():
     
     try:
         if is_windows:
-            # Local Dev (Windows) usually matches installed Chrome
+            # Local Dev
             driver = uc.Chrome(options=options, version_main=143)
         else:
-            # CI (Linux) - Let undetected_chromedriver handle it or just use standard
-            # GitHub Actions runner has Chrome installed.
+            # CI (Linux)
             driver = uc.Chrome(options=options)
+            
+        # FORCE CLEAN USER AGENT (Vital for Cloudflare in Headless mode)
+        # Remove 'Headless' from the default UA or set a specific known good one
+        ua = driver.execute_script("return navigator.userAgent")
+        clean_ua = ua.replace("HeadlessChrome", "Chrome")
+        driver.execute_cdp_cmd('Network.setUserAgentOverride', {"userAgent": clean_ua})
+        print(f"--- [Auth Service] Spoofed UA: {clean_ua}")
             
     except Exception as e:
         print(f"--- [Auth Service] Error Launching Chrome: {e}")
